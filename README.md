@@ -1,3 +1,3 @@
-# data science consulting STSCI 4850
-Data Analysis - FinalStatsConsulting.Rmd
-Data Cleaning and Parsing - _.Rmd
+# Final Project for STSCI 4850: Data Science Consulting
+Data Analysis - ``analysis.Qmd``
+Data Cleaning and Parsing - N/A

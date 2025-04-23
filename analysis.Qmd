@@ -1,0 +1,19 @@
+---
+title: "STSCI 4850 Final Project"
+author:
+  - "Katelyn Tai (kt497)"
+  - "Irfan Azidan (ib262)"
+date: today
+date-format: "MMMM D, YYYY" 
+format: html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Credit Card Delinquencies Final Project
+
+```{r}
+#This is where we will start our code
+```
