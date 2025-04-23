@@ -1,0 +1,17 @@
+---
+title: "Final Project"
+authors: "Katelyn Tai (kt497), "
+output: html_document
+date: "2025-04-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Credit Card Delinquencies Final Project 
+
+```{r}
+#This is where we will start our code
+```
+
