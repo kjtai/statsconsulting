@@ -1,0 +1,118 @@
+---
+title: "draft"
+author: "Beliz_Erdogmus"
+date: "2025-04-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+# UNEMPLOYMENT
+# https://fred.stlouisfed.org/series/UNRATE
+fred_unemp <- read.csv("fred_unemployment.csv")
+View(fred_unemp)
+```
+
+```{r}
+fred_unemp$observation_date <- as.Date(fred_unemp$observation_date)
+ggplot(fred_unemp, aes(x = observation_date, y = UNRATE)) + geom_line() +
+  labs(title = "Unemployment Rate (FRED)", x = "Date", y = "Unemployment Rate (%)") +
+  theme_minimal()
+```
+
+```{r}
+# INFLATION
+# https://fred.stlouisfed.org/series/CPIAUCSL
+fred_inf <- read.csv("fred_inflation.csv")
+View(fred_inf)
+# note, y axis CPIAUCSL = Consumer Price Index for All Urban Consumers: All Items, Seasonally Adjusted
+```
+
+```{r}
+fred_inf$observation_date <- as.Date(fred_inf$observation_date)
+
+# converting the existing index on the y axis to the actual inflation rates for readability
+fred_inf <- fred_inf %>%
+  arrange(observation_date) %>%
+  mutate(inf_percent = 100 * (CPIAUCSL / lag(CPIAUCSL, 12) - 1))
+
+ggplot(fred_inf, aes(x = as.Date(observation_date), y = inf_percent)) +
+  geom_line() + labs(title = "Year-over-Year Inflation Rate (CPI, YoY % Change)",
+    x = "Date", y = "Inflation Rate (%)") + theme_minimal()
+
+# Note: The first 12 rows have NA inflation values, as year-over-year inflation cannot be computed without data from the previous year, which is why I downloaded the data starting from 2017-01-01.
+```
+
+```{r}
+# GDP
+# https://fred.stlouisfed.org/series/GDP
+fred_gdp <- read.csv("fred_gdp.csv")
+View(fred_gdp)
+```
+
+```{r}
+# Annual GDP
+fred_gdp$observation_date <- as.Date(fred_gdp$observation_date)
+ggplot(fred_gdp, aes(x = observation_date, y = GDP)) + geom_line() +
+  labs(title = "GDP (FRED)", x = "Date", y = "GDP in Billions (USD)") +
+  theme_minimal()
+```
+
+```{r}
+# Real GDP Growth Rate (year over year)
+fred_gdp <- fred_gdp %>%
+  arrange(observation_date) %>%
+  mutate(gdp_growth = 100 * (GDP / lag(GDP, 4) - 1))
+
+ggplot(fred_gdp, aes(x = as.Date(observation_date), y = gdp_growth)) +
+  geom_line() + labs(title = "Yearly GDP Growth Rate (YoY, %)",
+    x = "Date", y = "GDP Growth Rate (%)") +theme_minimal()
+# Note: The first 4 rows have NA inflation values, as year-over-year GDP cannot be computed without data from the previous year, which is why I downloaded the data starting from 2017-01-01.
+```
+
+```{r}
+# PERSONAL SAVINGS
+# https://fred.stlouisfed.org/series/PSAVERT
+fred_savings <- read.csv("fred_savings.csv")
+View(fred_savings)
+```
+
+```{r}
+fred_savings$observation_date <- as.Date(fred_savings$observation_date)
+ggplot(fred_savings, aes(x = observation_date, y = PSAVERT)) + geom_line() +
+  labs(title = "Personal Savings Rate (FRED)", x = "Date", y = "Savings Rate (%)") +
+  theme_minimal()
+# High savings rate = people are being cautious (maybe worried about the economy, or fewer opportunities to spend, like during COVID lockdowns)
+```
+
+```{r}
+# FED INTEREST RATES
+# https://fred.stlouisfed.org/series/FEDFUNDS
+fred_int <- read.csv("fred_interest.csv")
+View(fred_int)
+```
+
+```{r}
+fred_int$observation_date <- as.Date(fred_int$observation_date)
+ggplot(fred_int, aes(x = observation_date, y = FEDFUNDS)) + geom_line() +
+  labs(title = "Interest Rate (FRED)", x = "Date", y = "Interest Rate (%)") +
+  theme_minimal()
+# When the Fed raises this rate, it becomes more expensive for banks to borrow and lend, so borrowing costs rise (for mortgages, car loans, business loans)
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
