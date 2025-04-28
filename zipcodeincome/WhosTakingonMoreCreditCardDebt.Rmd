@@ -1,0 +1,110 @@
+---
+title: "Who'sTakingonMoreCreditCardDebt?"
+output: html_document
+date: "2025-04-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#https://libertystreeteconomics.newyorkfed.org/2022/11/balances-are-on-the-rise-so-who-is-taking-on-more-credit-card-debt/
+#most recent version 2022Q3
+
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(zoo)
+
+file_path <- "LSE_HHDC_2022Q3.xlsx"
+```
+
+
+```{r}
+three_data <- read_excel(file_path, sheet = "figure3_data", range = "A6:E100", col_names = FALSE)
+
+colnames(three_data) <- c("Quarter", "quartile_1", "quartile_2", "quartile_3", "quartile_4")
+
+# Filter rows where Quarter is between 2018:Q1 and 2022:Q3
+filtered_data <- three_data %>%
+  filter(Quarter >= "2018:Q1" & Quarter <= "2022:Q3")
+
+# Fix: Convert all numeric columns to numeric type
+filtered_data <- filtered_data %>%
+  mutate(
+    quartile_1 = as.numeric(quartile_1),
+    quartile_2 = as.numeric(quartile_2),
+    quartile_3 = as.numeric(quartile_3),
+    quartile_4 = as.numeric(quartile_4)
+  )
+
+
+# Plot for all age groups together
+library(tidyr)
+
+# Reshape data for multi-line plot
+long_data <- filtered_data %>%
+  pivot_longer(cols = c(quartile_1, quartile_2, quartile_3, quartile_4), names_to = "Quartiles", values_to = "CreditCardBalance")
+
+# Plot
+ggplot(long_data, aes(x = Quarter, y = CreditCardBalance, color = Quartiles, group = Quartiles)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2) +
+  labs(title = "Delinquency Rates Remain Low Despite Recent Increases", subtitle = "Flow into delinquency by zip-code income (percent)",
+       x = "Quarter",
+       y = "%",
+       color = "Quartiles") +
+  scale_y_continuous(breaks = seq(0, 5000, by = 500), limits = c(0, 5000)) +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+# Read the data
+four_data <- read_excel(file_path, sheet = "figure4_data", range = "A6:E100", col_names = FALSE)
+
+# Rename columns
+colnames(four_data) <- c("Quarter", "quartile_1", "quartile_2", "quartile_3", "quartile_4")
+
+# Filter between 2018 Q1 and 2022 Q3
+filtered_data <- four_data %>%
+  filter(Quarter >= "2018:Q1" & Quarter <= "2022:Q3")
+
+# Convert to numeric
+filtered_data <- filtered_data %>%
+  mutate(
+    quartile_1 = as.numeric(quartile_1),
+    quartile_2 = as.numeric(quartile_2),
+    quartile_3 = as.numeric(quartile_3),
+    quartile_4 = as.numeric(quartile_4)
+  )
+
+# Reshape to long format
+library(tidyr)
+
+long_data <- filtered_data %>%
+  pivot_longer(cols = c(quartile_1, quartile_2, quartile_3, quartile_4), 
+               names_to = "Quartiles", 
+               values_to = "DelinquencyRate")
+
+# Plot
+library(ggplot2)
+
+ggplot(long_data, aes(x = Quarter, y = DelinquencyRate, color = Quartiles, group = Quartiles)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2) +
+  labs(title = "Balances Increase More in Lower-Income Areas",
+       subtitle = "Average Credit Card Balances by Zip Code Income",
+       x = "Quarter",
+       y = "Average Credit Card Balance (%)",
+       color = "Quartiles") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1),  #treat y vals at %
+                     breaks = seq(0, 6, by = 1), limits = c(0, 6)) +   
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
