@@ -13,19 +13,17 @@ library(tidyr)
 library(patchwork)
 library(lubridate)
 
-# --- 1. Load IRS ZIP Code Income Data (2018–2022) ---
-
 years <- 2018:2022
 file_paths <- paste0("~/Desktop/", substr(years, 3, 4), "zpallagi.csv")
 
 load_irs_year <- function(file_path, year) {
   read_csv(file_path) %>%
-    select(ZIPCODE = zipcode, A00100, N1) %>%
+    select(ZIPCODE = zipcode, STATE, A00100, N1) %>%  # <-- now keep STATE
     mutate(
       PerCapitaIncome = (A00100 * 1000) / N1,  # Undo 'in thousands'
       Year = year
     ) %>%
-    select(ZIPCODE, Year, PerCapitaIncome)
+    select(ZIPCODE, STATE, Year, PerCapitaIncome)
 }
 
 # Load and combine all years
@@ -35,107 +33,138 @@ irs_income_list <- lapply(seq_along(file_paths), function(i) {
 
 irs_income_combined <- bind_rows(irs_income_list)
 
-# Filter ZIPs with good income values
+# Clean: remove missing or invalid ZIPs
 irs_income_combined <- irs_income_combined %>%
-  filter(!is.na(PerCapitaIncome), PerCapitaIncome > 0)
-
-# --- 2. Create Income Rank and Flags ---
-
-# Simple fake ZIP to State mapping placeholder (replace with real if you have)
-zipcode_state_mapping <- data.frame(
-  ZIPCODE = irs_income_combined$ZIPCODE,
-  State = substr(as.character(irs_income_combined$ZIPCODE), 1, 2)  # Just first 2 digits as placeholder
-)
-
-# Merge State info into IRS data
-irs_income_combined <- irs_income_combined %>%
-  left_join(zipcode_state_mapping, by = "ZIPCODE")
-
-# Define Eighth District States (rough proxy)
-eighth_district_states <- c("MO", "IL", "IN", "KY", "TN", "MS", "AR")
-
-# Flag if ZIP is in the Eighth District
-irs_income_combined <- irs_income_combined %>%
-  mutate(
-    Is_Eighth_District = ifelse(State %in% eighth_district_states, 1, 0)
+  filter(
+    !is.na(PerCapitaIncome),
+    PerCapitaIncome > 0,
+    ZIPCODE != "00000",
+    ZIPCODE != "99999",
+    nchar(ZIPCODE) == 5,
+    grepl("^[0-9]{5}$", ZIPCODE)  # make sure ZIPs are 5 digits only
   )
 
-# Assign Income Rank and Group per Year
+# Define Eighth District States
+eighth_district_states <- c("MO", "IL", "IN", "KY", "TN", "MS", "AR")
+
+# Flag if ZIP is in the Eighth District (using actual STATE column)
+irs_income_combined <- irs_income_combined %>%
+  mutate(
+    Is_Eighth_District = ifelse(STATE %in% eighth_district_states, 1, 0)
+  )
+
 irs_income_combined <- irs_income_combined %>%
   group_by(Year) %>%
   mutate(
     IncomeRank = percent_rank(PerCapitaIncome),
+    # Assign Richest and Poorest groups
     Group = case_when(
       IncomeRank <= 0.10 ~ "Poorest 10%",
       IncomeRank >= 0.90 ~ "Richest 10%",
       TRUE ~ "Middle 80%"
+    ),
+    # Flag for Eighth District membership
+    Is_Eighth_District = ifelse(STATE %in% eighth_district_states, 1, 0),
+    # Assign DisplayGroup (for showing different slices)
+    DisplayGroup = case_when(
+      Is_Eighth_District == 1 ~ "Eighth District",
+      IncomeRank <= 0.10 ~ "Poorest 10%",
+      IncomeRank >= 0.90 ~ "Richest 10%",
+      TRUE ~ "United States"
     )
   ) %>%
   ungroup()
+
+
+# Look at results
+head(irs_income_combined)
+
 
 # --- 3. Pull FRED Credit Card Delinquency Data ---
 
 # Set your FRED API Key
 fredr_set_key("b1a5ad7c4a04ea912fc240e4bea05ba9")  # Replace with your real FRED key
 
-credit_card_delinquency <- fredr(
-  series_id = "DRCCLACBS",  # Credit Card Loan Delinquency Rate
+delinquency_data <- fredr(
+  series_id = "DRCCLACBS",
   observation_start = as.Date("2018-01-01"),
   observation_end = as.Date("2022-12-31"),
-  frequency = "q"
-) %>%
-  mutate(Year = year(date))
+  frequency = "a"  # annual
+)
 
-credit_card_delinquency_yearly <- credit_card_delinquency %>%
-  group_by(Year) %>%
-  summarize(AnnualDelinquencyRate = mean(value, na.rm = TRUE))
+# Prepare delinquency dataset
+delinquency_data <- delinquency_data %>%
+  select(Year = date, DelinquencyRate = value) %>%
+  mutate(Year = as.integer(format(Year, "%Y")))
 
-# --- 4. Merge IRS Income with FRED Data and Simulate Delinquency ---
+# Merge onto IRS income data
+irs_income_with_delinquency <- irs_income_combined %>%
+  left_join(delinquency_data, by = "Year")
 
-merged_data <- irs_income_combined %>%
-  left_join(credit_card_delinquency_yearly, by = "Year")
-
-merged_data <- merged_data %>%
-  mutate(
-    SimulatedDelinquencyRate = case_when(
-      IncomeRank <= 0.10 ~ AnnualDelinquencyRate * 1.5,  # Poorest 10% higher delinquency
-      IncomeRank >= 0.90 ~ AnnualDelinquencyRate * 0.7,  # Richest 10% lower delinquency
-      TRUE ~ AnnualDelinquencyRate * 1.0                 # Middle income normal
-    )
-  )
-
-# --- 5. Build the Final Group Labels ---
-
-merged_data <- merged_data %>%
-  mutate(FinalGroup = case_when(
-    Is_Eighth_District == 1 ~ "Eighth District",
-    Group == "Poorest 10%" ~ "Poorest 10%",
-    Group == "Richest 10%" ~ "Richest 10%",
-    TRUE ~ "US Overall"
-  ))
-
-# --- 6. Aggregate by Year and FinalGroup ---
-
-delinquency_by_group <- merged_data %>%
-  group_by(Year, FinalGroup) %>%
-  summarize(AverageDelinquencyRate = mean(SimulatedDelinquencyRate, na.rm = TRUE)) %>%
+###How does per capita income differ between ZIPs in different income groups while national delinquency rates are rising or falling?
+group_summary <- irs_income_with_delinquency %>%
+  group_by(Year, Group) %>%
+  summarize(
+    AvgPerCapitaIncome = mean(PerCapitaIncome, na.rm = TRUE),
+    DelinquencyRate = first(DelinquencyRate)  # same for all ZIPs that year
+  ) %>%
   ungroup()
 
-# --- 7. Plot the Trends by Group ---
+print(group_summary)
 
-ggplot(delinquency_by_group, aes(x = Year, y = AverageDelinquencyRate, color = FinalGroup)) +
-  geom_line(size = 1.2) +
-  geom_point(size = 2) +
+###Graphs!
+
+delinquency_national <- fredr(
+  series_id = "DRCCLACBS", 
+  observation_start = as.Date("2018-01-01"),
+  observation_end = as.Date("2022-12-31"),
+  frequency = "a"
+) %>%
+  select(Year = date, DelinquencyRate = value) %>%
+  mutate(Year = as.integer(format(Year, "%Y")))
+
+irs_income_with_delinquency <- irs_income_combined %>%
+  left_join(delinquency_national, by = "Year")
+
+# Summarize by group
+income_summary <- irs_income_with_delinquency %>%
+  filter(DisplayGroup %in% c("Poorest 10%", "Richest 10%", "Eighth District", "United States")) %>%
+  group_by(Year, DisplayGroup) %>%
+  summarize(
+    AvgIncome = mean(PerCapitaIncome, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Delinquency rate stays separate
+delinquency_summary <- delinquency_national
+
+# Now plot
+ggplot() +
+  geom_line(data = income_summary, aes(x = Year, y = AvgIncome, color = DisplayGroup), size = 1.2) +
+  geom_point(data = income_summary, aes(x = Year, y = AvgIncome, color = DisplayGroup), size = 2) +
+  geom_line(data = delinquency_summary, aes(x = Year, y = DelinquencyRate * 10000), color = "black", linetype = "dashed") +  # scale to match
   labs(
-    title = "Simulated Credit Card Delinquency Rates by Group",
-    subtitle = "US Overall vs Eighth District vs Richest/Poorest 10% ZIPs",
+    title = "Income Trends by Group with National Delinquency Rate",
+    y = "Per Capita Income (USD)",
     x = "Year",
-    y = "Delinquency Rate (%)",
     color = "Group"
   ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(face = "bold", size = 16),
-    plot.subtitle = element_text(size = 12),
-    legend.title = element_text(face = "bold")
-  )
+  scale_y_continuous(
+    sec.axis = sec_axis(~./10000, name = "Delinquency Rate (%)")
+  ) +
+  theme_minimal()
+
+
+# Fit a simple regression of Income ~ Year for each ZIP
+zip_trends <- irs_income_with_delinquency %>%
+  group_by(ZIPCODE) %>%
+  do(model = lm(PerCapitaIncome ~ Year, data = .)) %>%
+  mutate(Slope = coef(model)[["Year"]]) %>%
+  select(ZIPCODE, Slope)
+
+# Look at results
+head(zip_trends)
+
+
+
+
