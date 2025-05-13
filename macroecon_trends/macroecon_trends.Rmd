@@ -1,0 +1,557 @@
+---
+title: "Macroeconomic Trends and Credit Card Delinquencies"
+author: "Beliz_Erdogmus"
+date: "2025-04-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+# UNEMPLOYMENT
+# https://fred.stlouisfed.org/series/UNRATE
+fred_unemp <- read.csv("fred_unemployment.csv")
+#View(fred_unemp)
+```
+
+```{r}
+fred_unemp$observation_date <- as.Date(fred_unemp$observation_date)
+ggplot(fred_unemp, aes(x = observation_date, y = UNRATE)) +
+  geom_line(size = 1.2, color = "blue") +
+  labs(title = "Unemployment Rate (FRED)", x = "Date", y = "Unemployment Rate (%)") +
+  theme_minimal()
+```
+
+```{r}
+# INFLATION
+# https://fred.stlouisfed.org/series/CPIAUCSL
+fred_inf <- read.csv("fred_inflation.csv")
+#View(fred_inf)
+# note, y axis CPIAUCSL = Consumer Price Index for All Urban Consumers: All Items, Seasonally Adjusted
+```
+
+```{r}
+fred_inf$observation_date <- as.Date(fred_inf$observation_date)
+
+# converting the existing index on the y axis to the actual inflation rates for readability
+fred_inf <- fred_inf %>%
+  arrange(observation_date) %>%
+  mutate(inf_percent = 100 * (CPIAUCSL / lag(CPIAUCSL, 12) - 1))
+
+ggplot(fred_inf, aes(x = as.Date(observation_date), y = inf_percent)) +
+  geom_line(size = 1.2, color = "red") + labs(title = "Year-over-Year Inflation Rate (CPI, YoY % Change)",
+    x = "Date", y = "Inflation Rate (%)") + theme_minimal()
+
+# Note: The first 12 rows have NA inflation values, as year-over-year inflation cannot be computed without data from the previous year, which is why I downloaded the data starting from 2017-01-01.
+```
+
+```{r}
+# GDP
+# https://fred.stlouisfed.org/series/GDP
+fred_gdp <- read.csv("fred_gdp.csv")
+#View(fred_gdp)
+```
+
+```{r}
+# Annual GDP
+fred_gdp$observation_date <- as.Date(fred_gdp$observation_date)
+ggplot(fred_gdp, aes(x = observation_date, y = GDP)) + geom_line(size = 1.2, color = "darkgreen") +
+  labs(title = "GDP (FRED)", x = "Date", y = "GDP in Billions (USD)") +
+  theme_minimal()
+```
+
+```{r}
+# Real GDP Growth Rate (year over year)
+fred_gdp <- fred_gdp %>%
+  arrange(observation_date) %>%
+  mutate(gdp_growth = 100 * (GDP / lag(GDP, 4) - 1))
+
+ggplot(fred_gdp, aes(x = as.Date(observation_date), y = gdp_growth)) +
+  geom_line(size = 1.2, color = "green") + labs(title = "Yearly GDP Growth Rate (YoY, %)",
+    x = "Date", y = "GDP Growth Rate (%)") +theme_minimal()
+# Note: The first 4 rows have NA inflation values, as year-over-year GDP cannot be computed without data from the previous year, which is why I downloaded the data starting from 2017-01-01.
+```
+
+```{r}
+# PERSONAL SAVINGS
+# https://fred.stlouisfed.org/series/PSAVERT
+fred_savings <- read.csv("fred_savings.csv")
+#View(fred_savings)
+```
+
+```{r}
+fred_savings$observation_date <- as.Date(fred_savings$observation_date)
+ggplot(fred_savings, aes(x = observation_date, y = PSAVERT)) + geom_line(size = 1.2, color = "orange") +
+  labs(title = "Personal Savings Rate (FRED)", x = "Date", y = "Savings Rate (%)") +
+  theme_minimal()
+# High savings rate = people are being cautious (maybe worried about the economy, or fewer opportunities to spend, like during COVID lockdowns)
+```
+
+```{r}
+# FED INTEREST RATES
+# https://fred.stlouisfed.org/series/FEDFUNDS
+fred_int <- read.csv("fred_interest.csv")
+#View(fred_int)
+```
+
+```{r}
+fred_int$observation_date <- as.Date(fred_int$observation_date)
+ggplot(fred_int, aes(x = observation_date, y = FEDFUNDS)) + geom_line(size = 1.2, color = "purple") +
+  labs(title = "Interest Rate (FRED)", x = "Date", y = "Interest Rate (%)") +
+  theme_minimal()
+# When the Fed raises this rate, it becomes more expensive for banks to borrow and lend, so borrowing costs rise (for mortgages, car loans, business loans)
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(zoo)
+library(openxlsx)
+```
+
+# CREATING A USABLE CREDIT CARD DELINQUENCY DATASET
+```{r}
+# Preprocessing the credit card delinquency data from FRED for analyses
+cc_data <- read.xlsx("cc.xlsx")
+cc_data$Date <- as.Date(cc_data$Date, origin = "1899-12-30") # converting to correct R date format from excel's format
+
+# linearly interpolating missing rates for monthly values
+cc_data <- cc_data %>%
+  arrange(Date) %>%
+  mutate(CC_interp = na.approx(CC, x = Date, na.rm = FALSE))
+
+# visualizing
+ggplot(cc_data, aes(x = Date)) +
+  geom_line(aes(y = CC_interp), color = "purple", size = 1.2) +
+  scale_y_continuous(limits = c(0, 12)) +  # Start at 0, let max be automatic
+  labs(
+    title = "Interpolated Monthly Credit Card Delinquency Rate",
+    y = "Delinquency Rate (%)",
+    x = "Date"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# write.csv(cc_data, file = "/Users/belizerdogmus/Desktop/Spring 2025/STSCI 4850/HW_3/cc.csv", row.names = FALSE)
+```
+
+# PREPROCESSING FOR FUTURE ANALYSES
+```{r}
+# Cleaning datasets for analyses
+
+# Unemployment: Clean, 2018-2024
+# Savings: Clean, 2018-2024
+# Int rates: 
+fred_int <- fred_int %>% slice(-1:-12)
+# Inflation:
+fred_inf_clean <- fred_inf %>%
+  arrange(observation_date) %>%
+  mutate(inf_percent = 100 * (CPIAUCSL / lag(CPIAUCSL, 12) - 1)) %>%
+  select(observation_date, inf_percent) %>%     # Keep only date + YoY inflation
+  slice(-1:-12)  
+# GDP:
+fred_gdp <- fred_gdp %>% slice(-1:-4)
+monthly_dates <- data.frame(
+  observation_date = seq(as.Date("2018-01-01"), as.Date("2024-12-01"), by = "month"))
+fred_gdp_clean <- monthly_dates %>%
+  left_join(fred_gdp %>% select(observation_date, gdp_growth), by = "observation_date")
+fred_gdp_clean <- fred_gdp_clean %>% # linearly interpolating missing rates for monthly values
+  arrange(observation_date) %>%
+  mutate(gdp_growth_interp = na.approx(gdp_growth, x = observation_date, na.rm = FALSE))
+fred_gdp_clean <- fred_gdp_clean %>%
+  select(observation_date, gdp_growth_interp)
+# CC:
+cc_data <- cc_data %>%
+  select(Date, CC_interp)
+cc_data <- cc_data %>% slice(-1:-12)
+cc_data <- cc_data %>%
+  rename(observation_date = Date)
+
+# making sure dates are in date format
+fred_inf_clean$observation_date <- as.Date(fred_inf_clean$observation_date)
+fred_gdp_clean$observation_date <- as.Date(fred_gdp_clean$observation_date)
+fred_unemp$observation_date <- as.Date(fred_unemp$observation_date)
+fred_int$observation_date <- as.Date(fred_int$observation_date)
+fred_savings$observation_date <- as.Date(fred_savings$observation_date)
+cc_data$observation_date <- as.Date(cc_data$observation_date)
+
+# merging datasets
+merged <- cc_data %>%
+  select(observation_date, CC_interp) %>%
+  left_join(fred_inf_clean, by = "observation_date") %>%
+  left_join(fred_gdp_clean, by = "observation_date") %>%
+  left_join(fred_unemp, by = "observation_date") %>%
+  left_join(fred_int, by = "observation_date") %>%
+  left_join(fred_savings, by = "observation_date")
+
+merged <- merged[-85, ]
+```
+
+# CORRELATION ANALYSIS
+```{r}
+cor_data <- merged %>%
+  select(where(is.numeric))
+cor_matrix <- cor(cor_data, use = "complete.obs")
+cor_matrix["CC_interp", ]
+# fairly weak relationships. As expected, correlation analysis isn't very insightful since oftentimes there are lagged results.
+# for example, an increase in inflation is much more likely to be followed by an increase in cc delq rates a few months later and not at the same time.
+```
+
+```{r}
+#library(corrplot)
+corrplot(cor_matrix, method = "color", type = "upper",
+         tl.col = "black", tl.srt = 45, addCoef.col = "black")
+# Just visually from the analysis, unemployment shows the clearest link to credit card delinquency.
+# Inflation and interest rates do affect it somewhat, but the linear relationship is weak.
+# GDP growth doesn’t line up much at all with delinquencies at a monthly level.
+# There may be lagged effects, especially for interest rates and inflation - will be looking into this next.
+```
+# Interpretation for Basic Correlation Analysis
+  - These same-month correlations are generally weak to moderate, which is what was expected.
+  - Economic effects like inflation, interest rate hikes, or job loss typically take time to ripple through to consumer behavior.
+The basic correlation analysis shows only weak-to-moderate associations between macroeconomic indicators and credit card delinquency rates. While unemployment has the strongest contemporaneous relationship (+0.34), other variables like inflation and interest rates show weaker or unexpected patterns. This highlights a key limitation of basic correlation: macro effects often manifest with a delay, making lagged analyses a more insightful approach for understanding drivers of delinquency trends.
+
+# LAG ANALYSIS
+```{r}
+# shifting each macro by 1 month
+lagged <- merged %>%
+  arrange(observation_date) %>%
+  mutate(
+    inf_lag1       = lag(inf_percent, 1),
+    gdp_lag1       = lag(gdp_growth_interp, 1),
+    unrate_lag1    = lag(UNRATE, 1),
+    fedfunds_lag1  = lag(FEDFUNDS, 1),
+    psavert_lag1   = lag(PSAVERT, 1)
+  )
+lagged_cor_data <- lagged %>%
+  select(CC_interp, inf_lag1, gdp_lag1, unrate_lag1, fedfunds_lag1, psavert_lag1)
+lagged_cor_matrix <- cor(lagged_cor_data, use = "complete.obs")
+lagged_cor_matrix["CC_interp", ]
+```
+
+```{r}
+# shifting each macro trend by 3 months
+lagged <- merged %>%
+  arrange(observation_date) %>%
+  mutate(
+    inf_lag3       = lag(inf_percent, 3),
+    gdp_lag3       = lag(gdp_growth_interp, 3),
+    unrate_lag3    = lag(UNRATE, 3),
+    fedfunds_lag3  = lag(FEDFUNDS, 3),
+    psavert_lag3   = lag(PSAVERT, 3)
+  )
+lagged_cor_data <- lagged %>%
+  select(CC_interp, inf_lag3, gdp_lag3, unrate_lag3, fedfunds_lag3, psavert_lag3)
+lagged_cor_matrix <- cor(lagged_cor_data, use = "complete.obs")
+lagged_cor_matrix["CC_interp", ]
+```
+
+```{r}
+# shifting each macro trend by 6 months
+lagged <- merged %>%
+  arrange(observation_date) %>%
+  mutate(
+    inf_lag6       = lag(inf_percent, 6),
+    gdp_lag6       = lag(gdp_growth_interp, 6),
+    unrate_lag6    = lag(UNRATE, 6),
+    fedfunds_lag6  = lag(FEDFUNDS, 6),
+    psavert_lag6   = lag(PSAVERT, 6)
+  )
+lagged_cor_data <- lagged %>%
+  select(CC_interp, inf_lag6, gdp_lag6, unrate_lag6, fedfunds_lag6, psavert_lag6)
+lagged_cor_matrix <- cor(lagged_cor_data, use = "complete.obs")
+lagged_cor_matrix["CC_interp", ]
+```
+
+```{r}
+# Visualizing the results of the lag analyses
+corr_df <- data.frame(
+  Variable = rep(c("Inflation", "GDP Growth", "Unemployment", "Interest Rate", "Savings Rate"), 3),
+  Lag = factor(rep(c("Lag 1", "Lag 3", "Lag 6"), each = 5), levels = c("Lag 1", "Lag 3", "Lag 6")),
+  Correlation = c(
+    -0.323, -0.163, 0.340, 0.241, 0.269,   # Lag 1
+    -0.397, -0.286, 0.315, 0.355, 0.266,   # Lag 3
+    -0.421, -0.390, 0.205, 0.493, 0.194    # Lag 6
+  )
+)
+ggplot(corr_df, aes(x = Variable, y = Correlation, fill = Lag)) +
+  geom_col(position = "dodge") +
+  geom_hline(yintercept = 0, color = "gray40") +
+  labs(
+    title = "Correlation with Credit Card Delinquencies by Lag",
+    y = "Pearson Correlation",
+    x = "Macro Variable",
+    fill = "Lag"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+library(reshape2)
+
+# Build correlation matrix
+cor_matrix <- matrix(c(
+  -0.323, -0.397, -0.421,   # Inflation
+  -0.163, -0.286, -0.390,   # GDP
+   0.340,  0.315,  0.205,   # Unemployment
+   0.241,  0.355,  0.493,   # Interest rate
+   0.269,  0.266,  0.194    # Savings
+), nrow = 5, byrow = TRUE)
+
+rownames(cor_matrix) <- c("Inflation", "GDP", "Unemployment", "Interest Rate", "Savings Rate")
+colnames(cor_matrix) <- c("Lag 1", "Lag 3", "Lag 6")
+
+heat_df <- melt(cor_matrix)
+
+ggplot(heat_df, aes(x = Var2, y = Var1, fill = value)) +
+  geom_tile() +
+  geom_text(aes(label = round(value, 2)), color = "white", size = 4) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  labs(
+    title = "Heatmap of Lagged Correlations with Credit Card Delinquencies",
+    x = "Lag", y = "Macro Variable", fill = "Correlation"
+  ) +
+  theme_minimal()
+
+```
+# Interpretation for Lag Analysis
+Inflation:
+  - Has a negative correlation, why? I initially expected higher inflation -> higher delinquencies.
+  - But here is some nuance: During 2021–2022, inflation spiked while savings were still high (from stimulus), and employment was strong. So people may have: used savings to cover expenses, maintained jobs despite inflation, avoided delinquencies until later, etc.
+  - Also, inflation triggers Fed rate hikes, which eventually show stronger correlation with delinquencies (as seen in interest rate lags)
+  - Conclusion: Inflation itself may not directly cause delinquencies — it's the second-order effects (e.g., rate hikes, job loss, savings depletion) that do.
+  
+GDP:
+  - As expected, strong GDP growth → economic expansion → fewer delinquencies.
+  - However, GDP doesn’t reflect consumer-level financial stress well, especially for lower-income groups more vulnerable to delinquencies.
+  - Also, GDP is quarterly, so the linear interpolation I did may have dulled the signal a bit.
+  
+Unemployment:
+  - This is the clearest intuitive result: Job loss → less income → more missed payments.
+  - But correlation weakens over time which suggests delinquencies follow quickly after job loss (1–3 months), and after 6 months, people may have found new work or adapted.
+  
+Interest Rates:
+  - These show the strongest relationship: Rate hikes → more expensive credit card debt (APR > 20% now!) → payment strain grows over time. 
+  - The correlation increases with lag, peaking at +0.49 after 6 months — showing delayed pressure on borrowers.
+  - Out of all the macro trends, interest rate hikes may be the most reliable early predictor of future delinquencies.
+  
+Personal Savings Rates:
+  - Has a weak positive correlation, which might reflect people saving more during economic anxiety, but still defaulting.
+  - The personal savings rate includes retirement & investment income too, so it may not reflect liquid emergency savings for working-class households.
+  
+Overall Interpretation:
+  - The correlations are weaker than I had expected initially. Some reasons as to why may be:
+    - Lag structure is still too simple — effects may be nonlinear or distributed over longer windows.
+    - Delinquencies are affected by non-macro factors like credit access, pandemic policies, household wealth distribution, etc.
+    - Macro data is aggregate — doesn't reflect vulnerable subgroups (like low-income consumers who drive delinquency shifts).
+    - Survival effects — the riskiest borrowers may already be in collections or defaulted, so later data reflects a more stable pool.
+
+Key Takeaways:
+  - Interest rates (6-month lag) are your strongest macro predictor.
+  - Unemployment (1–3 month lag) makes intuitive sense and shows moderate association.
+  - Inflation’s impact is likely indirect — its correlation is negative, but it's a signal of coming strain, not the cause.
+  - Weak correlations could still be useful in forecasting and understanding macro dynamics, however, more advanced anaylsis may be necessary to uncover more significant and meaningful associations.
+
+# ROLLING CORRELATION
+  - Calculating the correlation between two variables over a sliding window of time, not the entire dataset all at once.
+  - Shows how the relationship between two variables changes over time - tells us whether the two variables tend to move together or in opposite directions, and how consistent that relationship is across different time periods.
+  - It’s measuring the consistency of the relationship over time.
+  
+```{r}
+# 12 months: more responsive, but more volatile
+merged <- merged %>%
+  arrange(observation_date) %>%
+  mutate(
+    roll_corr_unemp = rollapplyr(cbind(CC_interp, UNRATE), 12, function(x) cor(x[,1], x[,2], use = "complete.obs"), by.column = FALSE, fill = NA),
+    roll_corr_inf = rollapplyr(cbind(CC_interp, inf_percent), 12, function(x) cor(x[,1], x[,2], use = "complete.obs"), by.column = FALSE, fill = NA),
+    roll_corr_gdp = rollapplyr(cbind(CC_interp, gdp_growth_interp), 12, function(x) cor(x[,1], x[,2], use = "complete.obs"), by.column = FALSE, fill = NA),
+    roll_corr_fed = rollapplyr(cbind(CC_interp, FEDFUNDS), 12, function(x) cor(x[,1], x[,2], use = "complete.obs"), by.column = FALSE, fill = NA),
+    roll_corr_savings = rollapplyr(cbind(CC_interp, PSAVERT), 12, function(x) cor(x[,1], x[,2], use = "complete.obs"), by.column = FALSE, fill = NA)
+  )
+
+roll_long_12 <- merged %>%
+  select(observation_date, roll_corr_unemp, roll_corr_inf, roll_corr_gdp, roll_corr_fed, roll_corr_savings) %>%
+  pivot_longer(-observation_date, names_to = "Variable", values_to = "Correlation") %>%
+  mutate(Macro = case_when(
+    Variable == "roll_corr_unemp" ~ "Unemployment",
+    Variable == "roll_corr_inf" ~ "Inflation",
+    Variable == "roll_corr_gdp" ~ "GDP Growth",
+    Variable == "roll_corr_fed" ~ "Interest Rate",
+    Variable == "roll_corr_savings" ~ "Savings Rate"
+  ))
+
+ggplot(roll_long_12, aes(x = observation_date, y = Correlation, color = Macro)) +
+  geom_line(size = 1) +
+  facet_wrap(~ Macro, ncol = 2) +
+  scale_y_continuous(limits = c(-1, 1)) +
+  labs(
+    title = "12-Month Rolling Correlation: Macro Variables vs. Credit Card Delinquency",
+    x = "Date", y = "Rolling Correlation"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+# 12 month rolling correlation interpretation:
+For all the macroeconomic trends, the 12 month period, as I assumed is too short of a period to be a reliable indicator of correlation. For all the variables, the correlation is very cyclical and oscillates between -1 to 1 pretty much every year.
+With these results, I will now be analyzing for 24 months to see whether there are more stable and predictive relationships.
+
+```{r}
+# 24 months: smoother, shows long-term relationships
+merged <- merged %>%
+  arrange(observation_date) %>%
+  mutate(
+    roll_corr_unemp_24 = rollapplyr(cbind(CC_interp, UNRATE), 24, function(x) cor(x[,1], x[,2], use = "complete.obs"), by.column = FALSE, fill = NA),
+    roll_corr_inf_24 = rollapplyr(cbind(CC_interp, inf_percent), 24, function(x) cor(x[,1], x[,2], use = "complete.obs"), by.column = FALSE, fill = NA),
+    roll_corr_gdp_24 = rollapplyr(cbind(CC_interp, gdp_growth_interp), 24, function(x) cor(x[,1], x[,2], use = "complete.obs"), by.column = FALSE, fill = NA),
+    roll_corr_fed_24 = rollapplyr(cbind(CC_interp, FEDFUNDS), 24, function(x) cor(x[,1], x[,2], use = "complete.obs"), by.column = FALSE, fill = NA),
+    roll_corr_savings_24 = rollapplyr(cbind(CC_interp, PSAVERT), 24, function(x) cor(x[,1], x[,2], use = "complete.obs"), by.column = FALSE, fill = NA)
+  )
+
+roll_long_24 <- merged %>%
+  select(observation_date, roll_corr_unemp_24, roll_corr_inf_24, roll_corr_gdp_24, roll_corr_fed_24, roll_corr_savings_24) %>%
+  pivot_longer(-observation_date, names_to = "Variable", values_to = "Correlation") %>%
+  mutate(Macro = case_when(
+    Variable == "roll_corr_unemp_24" ~ "Unemployment",
+    Variable == "roll_corr_inf_24" ~ "Inflation",
+    Variable == "roll_corr_gdp_24" ~ "GDP Growth",
+    Variable == "roll_corr_fed_24" ~ "Interest Rate",
+    Variable == "roll_corr_savings_24" ~ "Savings Rate"
+  ))
+
+ggplot(roll_long_24, aes(x = observation_date, y = Correlation, color = Macro)) +
+  geom_line(size = 1) +
+  facet_wrap(~ Macro, ncol = 2) +
+  scale_y_continuous(limits = c(-1, 1)) +
+  labs(
+    title = "24-Month Rolling Correlation: Macro Variables vs. Credit Card Delinquency",
+    x = "Date", y = "Rolling Correlation"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+# 24 month rolling correlation interpretation:
+As expected, because these are more longer term, the relationships oscillate less and are more stable.
+GDP:
+  - Fluctuates between positive and negative. Indicates GDP is not a strong short-term predictor, probably too broad and reactive
+Interest Rate:
+  - Moves from negative (2018–2021) to strong positive by 2023, clear long-term trend: rate hikes → gradually rising delinquency burden.
+Unemployment: 
+  - Becomes very stable near +1 post-2020. Long-term, unemployment is a strong, consistent predictor of delinquencies.
+Inflation:
+  - Mostly negative throughout. Suggests that inflation itself isn’t causing delinquencies; its effects are likely mediated by other factors (savings, policy, income).
+Savings Rate:
+  - Mostly positive, but a gradual decline in correlation by 2024. Savings probably helped cushion consumers early on, but their predictive power faded as buffers ran out
+
+In summary, unemployment and interest rate seem to be the clearest, most reliable drivers of credit card delinquency trends over time. Inflation seems to be misleading and not intuitively related to delinquencies. 
+Looking at how the relationship between macro trends and credit card delinquencies changes over time, it’s clear that these connections aren’t fixed. Some variables, like unemployment and interest rates, become more important in certain periods—especially after major events like the pandemic or rate hikes—while others fluctuate or fade in relevance. The rolling correlation analysis helps show that these effects don’t always happen right away; they build gradually or show up with a delay. A one-time snapshot wouldn’t capture that. Overall, the results highlight how consumer financial stress is shaped by shifting economic conditions, and that analyzing trends over time gives a much clearer picture than just looking at raw correlations in a single moment.
+However, obviously there are limitations to this. We can observe the graphs and try to pick out trends, but they only tell us so much. Next, I will be doing linear regression as my final analysis.
+
+# MULTIPLE LINEAR REGRESSION
+```{r}
+model_all <- lm(CC_interp ~ UNRATE + inf_percent + gdp_growth_interp + FEDFUNDS + PSAVERT, data = merged)
+summary(model_all)
+```
+# MLR Interpretation
+This model tries to explain changes in credit card delinquency rates using the five macroeconomic indicators. It does a decent job, but not a perfect one: the adjusted R^2 is 36%, which is not as high as I would like it to be for it to be a good predictive model.
+However, the model as a whole is statistically significant (p < 0.001), so it’s picking up real signal.
+
+Unemployment:
+  - Estimate: 0.44
+  - Each 1% increase in unemployment is associated with a 0.44% rise in delinquencies, holding other factors constant. Highly significant (p < 0.001)
+Inflation:
+  - Estimate: -0.22
+  - Each 1% increase in inflation is associated with a 0.22% decrease in delinquencies. This is statistically significant (p ≈ 0.001) but counterintuitive — may reflect indirect or lagged effects.
+GDP:
+  - Estimate: 0.144
+  - Surprisingly, higher GDP growth is associated with higher delinquencies. Statistically significant, but could reflect reverse causality or hidden confounders.
+Interest Rate:
+  - Estimate: 0.23
+  - Each 1% increase in the federal funds rate is associated with a 0.23% increase in delinquencies. Highly significant (p < 0.001).
+Savings Rate:
+  - Estimate: -0.06
+  - Not statistically significant (p = 0.15) → savings rate doesn’t have a consistent or strong effect here 
+
+Overall conclusion:
+This regression shows that unemployment and interest rates are strong and reliable predictors of delinquency rates — both are positively associated, meaning as people lose jobs or interest burdens increase, delinquencies rise. Inflation and GDP growth are significant too, but their directions are less intuitive and may reflect indirect or lagged relationships. The savings rate doesn’t show a clear pattern here. Overall, while this model doesn’t explain everything, it confirms that macro conditions — especially labor markets and borrowing costs — do have a real and measurable impact on credit card debt behavior.
+
+# LAGGED MLR ANALYSIS
+```{r}
+merged <- merged %>%
+  arrange(observation_date) %>%
+  mutate(
+    # 1-month lag
+    unrate_lag1 = lag(UNRATE, 1),
+    inf_lag1 = lag(inf_percent, 1),
+    gdp_lag1 = lag(gdp_growth_interp, 1),
+    fedfunds_lag1 = lag(FEDFUNDS, 1),
+    psavert_lag1 = lag(PSAVERT, 1),
+    # 3-month lag
+    unrate_lag3 = lag(UNRATE, 3),
+    inf_lag3 = lag(inf_percent, 3),
+    gdp_lag3 = lag(gdp_growth_interp, 3),
+    fedfunds_lag3 = lag(FEDFUNDS, 3),
+    psavert_lag3 = lag(PSAVERT, 3),
+    # 6-month lag
+    unrate_lag6 = lag(UNRATE, 6),
+    inf_lag6 = lag(inf_percent, 6),
+    gdp_lag6 = lag(gdp_growth_interp, 6),
+    fedfunds_lag6 = lag(FEDFUNDS, 6),
+    psavert_lag6 = lag(PSAVERT, 6)
+  )
+# 1-month lag model
+model_lag1 <- lm(CC_interp ~ unrate_lag1 + inf_lag1 + gdp_lag1 + fedfunds_lag1 + psavert_lag1, data = merged)
+# 3-month lag model
+model_lag3 <- lm(CC_interp ~ unrate_lag3 + inf_lag3 + gdp_lag3 + fedfunds_lag3 + psavert_lag3, data = merged)
+# 6-month lag model
+model_lag6 <- lm(CC_interp ~ unrate_lag6 + inf_lag6 + gdp_lag6 + fedfunds_lag6 + psavert_lag6, data = merged)
+
+summary(model_lag1)
+summary(model_lag3)
+summary(model_lag6)
+```
+# LAG MLR Interpretation
+
+1 month lag:
+  - Adjusted R^2 = 0.39
+  - Significant Predictors: Unemployment, GDP, Int rates, inflation. Savings rate not significant.
+3 month lag:
+  - Adjusted R^2 = 0.46
+  - Significant Predictors: Unemployment, GDP, Int rates, inflation. Interest rates more significant, savings still not significant.
+6 month lag:
+  - Adjusted R^2 = 0.52
+  - Significant Predictors: Unemployment, Int rates, inflation. Interest rates extremely significant (almost 0), GDP loses significance.
+  - Savings is completely useless (p value almost 1)
+  - This model tells us that rate hikes take about 6 months to really hit credit stress levels, and unemployment/inflation still matter, but GDP’s predictive power fades.
+  
+Overall conclusion:
+  - The longer the lag, the better the model fits — delinquency is driven more by macro trends from several months ago than by current conditions.
+  - Interest rates are the strongest and most consistent predictor, becoming more powerful over time.
+  - Unemployment also matters across all lags.
+  - Inflation’s effect weakens with lag, but still remains significant.
+  - GDP is only meaningful in the short- to mid-term, likely because its headline growth reflects past conditions.
+  - Savings rate isn’t helpful in any version.
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
