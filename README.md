@@ -3,7 +3,7 @@ Data Analysis - ``analysis.Qmd``
 Data Cleaning and Parsing - N/A
 
 
-# Understanding the Post-Pandemic Surge in Credit Card Delinquencies
+#  📊 Understanding the Post-Pandemic Surge in Credit Card Delinquencies
 
 This is the GitHub repository for our final project in STSCI 4850. This repository contains the code and analysis related to our investigation into rising credit card delinquency rates in the United States during and after the COVID-19 pandemic.
 
